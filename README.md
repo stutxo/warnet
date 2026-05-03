@@ -51,7 +51,27 @@ and install additional client tools into the virtual environment.
 warnet setup
 ```
 
-### 4. Create a project and network
+### 4. Build the Char Bitcoin image
+
+Build `judica-org/char-bitcoin` from `master` and load it into your local
+Docker environment:
+
+```sh
+warnet image build \
+  --repo judica-org/char-bitcoin \
+  --commit-sha master \
+  --tags judica-org/char-bitcoin:30.0.0 \
+  --arches arm64 \
+  --action load \
+  --ssh \
+  --build-jobs 4
+```
+
+Use `--arches amd64` on Intel Linux, or omit `--arches` for the default
+multi-arch build. The `30.0.0` value is the local Docker image tag; the source
+revision above is `master`.
+
+### 5. Create a project and network
 
 Warnet will create a new folder structure containing standard scenario and plugin
 files, and prompt for details about a network topology to create. Topology details
@@ -62,13 +82,29 @@ and how many random graph connections to start each node with.
 warnet new /my/work/stuff/projectname
 ```
 
-### 5. Deploy the network
+When prompted for the Bitcoin node version, choose `other` and enter:
+
+```text
+judica-org/char-bitcoin:30.0.0
+```
+
+Enable Grafana logging when prompted so `warnet dashboard` has metrics.
+
+Then append Char runtime config under the existing `defaultConfig` block in the
+generated `node-defaults.yaml`:
+
+```yaml
+  charenable=1
+  debug=char
+```
+
+### 6. Deploy the network
 
 ```sh
 warnet deploy /my/work/stuff/projectname/networks/networkname
 ```
 
-### 6. Run experiments
+### 7. Run experiments
 
 For example, you can start mining blocks...
 
@@ -82,13 +118,13 @@ warnet run /my/work/stuff/projectname/scenarios/miner_std.py
 warnet dashboard
 ```
 
-### 7. Shut down the network
+### 8. Shut down the network
 
 ```sh
 warnet down
 ```
 
-### 8. Customize
+### 9. Customize
 
 Read the docs and learn how to write your own [scenarios](docs/scenarios.md)
 or add [plugins](docs/plugins.md) to your network. [Configure](docs/config.md) individual nodes

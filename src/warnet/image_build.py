@@ -21,6 +21,9 @@ def build_image(
     build_args: str,
     arches: str,
     action: str,
+    repo_url: str = "",
+    ssh: bool = False,
+    build_jobs: str = "",
 ):
     if not build_args:
         build_args = '"-DBUILD_TESTS=OFF -DBUILD_GUI=OFF -DBUILD_BENCH=OFF -DBUILD_UTIL=ON -DBUILD_FUZZ_BINARY=OFF -DWITH_ZMQ=ON "'
@@ -33,11 +36,17 @@ def build_image(
     else:
         build_arches.extend(arches.split(","))
 
+    if ssh and not repo_url:
+        repo_url = f"git@github.com:{repo}.git"
+
     print(f"{repo=:}")
     print(f"{commit_sha=:}")
     print(f"{tags=:}")
     print(f"{build_args=:}")
     print(f"{build_arches=:}")
+    print(f"{repo_url=:}")
+    print(f"{ssh=:}")
+    print(f"{build_jobs=:}")
 
     # Setup buildkit
     builder_name = "bitcoind-builder"
@@ -59,8 +68,11 @@ def build_image(
         f"docker buildx build"
         f" --platform {platforms}"
         f" --build-arg REPO={repo}"
+        f" --build-arg REPO_URL={repo_url}"
         f" --build-arg COMMIT_SHA={commit_sha}"
         f" --build-arg BUILD_ARGS={build_args}"
+        f" --build-arg BUILD_JOBS={build_jobs}"
+        f"{' --ssh default' if ssh else ''}"
         f" {tag_args}"
         f" --file {dockerfile_path}"
         f" {dockerfile_path.parent}"

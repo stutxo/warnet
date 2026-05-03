@@ -1,8 +1,10 @@
 # Setup deps stage
 FROM alpine:3.20 AS deps
 ARG REPO
+ARG REPO_URL
 ARG COMMIT_SHA
 ARG BUILD_ARGS
+ARG BUILD_JOBS
 
 RUN --mount=type=cache,target=/var/cache/apk \
     sed -i 's/http\:\/\/dl-cdn.alpinelinux.org/https\:\/\/alpine.global.ssl.fastly.net/g' /etc/apk/repositories \
@@ -19,6 +21,7 @@ RUN --mount=type=cache,target=/var/cache/apk \
     libressl \
     libtool \
     linux-headers \
+    openssh-client \
     sqlite-dev \
     zeromq-dev \
     capnproto-dev
@@ -34,32 +37,39 @@ WORKDIR /build
 
 # Assume $COMMIT_SHA is a git commit but if that fails, then
 # assume it is a release tag that can be checked out
-RUN set -ex \
+RUN --mount=type=ssh set -ex \
     && cd /build \
     && git init \
-    && git remote add origin "https://github.com/${REPO}" \
-
+    && if [ -n "$REPO_URL" ]; then \
+         REMOTE="$REPO_URL"; \
+       else \
+         REMOTE="https://github.com/${REPO}"; \
+       fi \
+    && case "$REMOTE" in \
+         git@*|ssh://*) \
+           mkdir -p -m 0700 /root/.ssh; \
+           export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new"; \
+           ;; \
+       esac \
+    && git remote add origin "$REMOTE" \
     # Try commit/branch first
     && if git fetch --depth 1 origin "$COMMIT_SHA:refs/temp/ref" 2>/dev/null; then \
          REF=refs/temp/ref; \
        else \
-
          # Fallback: fetch tag explicitly into local refs
          git fetch --depth 1 origin "refs/tags/$COMMIT_SHA:refs/tags/$COMMIT_SHA"; \
          REF="refs/tags/$COMMIT_SHA"; \
        fi \
-
     # Resolve tag -> commit if needed
     && resolved=$(git rev-parse --verify "$REF^{commit}") \
     && git checkout "$resolved" \
-
     && git apply /tmp/isroutable.patch \
     && git apply /tmp/addrman.patch \
     && sed -i s:sys/fcntl.h:fcntl.h: src/compat/compat.h \
     && cmake -B build \
     -DCMAKE_INSTALL_PREFIX=${BITCOIN_PREFIX} \
     ${BUILD_ARGS} \
-    && cmake --build build -j$(nproc) \
+    && cmake --build build -j${BUILD_JOBS:-$(nproc)} \
     && cmake --install build \
     && strip ${BITCOIN_PREFIX}/bin/bitcoin-cli \
     && strip ${BITCOIN_PREFIX}/bin/bitcoind \
