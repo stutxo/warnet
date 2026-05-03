@@ -95,6 +95,7 @@ generated `node-defaults.yaml`:
 
 ```yaml
   charenable=1
+  charbatchverifyminconnseconds=0
   debug=char
 ```
 
@@ -105,6 +106,14 @@ warnet deploy /my/work/stuff/projectname/networks/networkname
 ```
 
 ### 7. Run experiments
+
+Set up one Char bond per node and schedule the default `warnet` app domain.
+The default domain hex is `sha256("warnet")`:
+`edfba5f37483dac7484bed0b573e85b88051dbe445665ffd27fbcb742adbb090`.
+
+```sh
+warnet run /my/work/stuff/projectname/scenarios/char_setup.py
+```
 
 For example, you can start mining blocks...
 

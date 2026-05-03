@@ -362,6 +362,7 @@ def _run(
             for needle in [
                 "__init__.py",
                 "commander.py",
+                "char_framework",
                 "test_framework",
                 "ln_framework",
                 scenario_path.name,
