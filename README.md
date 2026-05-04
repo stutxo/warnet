@@ -82,19 +82,12 @@ and how many random graph connections to start each node with.
 warnet new /my/work/stuff/projectname
 ```
 
-When prompted for the Bitcoin node version, choose
-`judica-org/char-bitcoin:30.0.0`.
+The default Bitcoin node image is `judica-org/char-bitcoin:30.0.0`. Networks
+using that image have Char enabled automatically in the generated
+`node-defaults.yaml`.
 
-Enable Grafana logging when prompted so `warnet dashboard` has metrics.
-
-Then append Char runtime config under the existing `defaultConfig` block in the
-generated `node-defaults.yaml`:
-
-```yaml
-  charenable=1
-  charbatchverifyminconnseconds=0
-  debug=char
-```
+Enable Grafana logging when prompted so `warnet dashboard` has metrics. For Char
+Bitcoin networks, Warnet also adds the Char dashboard metrics automatically.
 
 ### 6. Deploy the network
 

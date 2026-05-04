@@ -18,6 +18,7 @@ from resources.scenarios.ln_framework.ln import (
 )
 
 from .constants import (
+    CHAR_BITCOIN_TAG,
     DEFAULT_IMAGE_REPO,
     DEFAULT_TAG,
     FORK_OBSERVER_RPCAUTH,
@@ -28,6 +29,24 @@ from .constants import (
 @click.group(name="graph", hidden=True)
 def graph():
     """Create and validate network graphs"""
+
+
+CHAR_DOMAIN_HEX = "edfba5f37483dac7484bed0b573e85b88051dbe445665ffd27fbcb742adbb090"
+CHAR_DOMAIN_INFO = "warnet"
+CHAR_DASHBOARD_METRICS = (
+    "blocks=getblockcount() "
+    'inbounds=getnetworkinfo()["connections_in"] '
+    'outbounds=getnetworkinfo()["connections_out"] '
+    'mempool_size=getmempoolinfo()["size"] '
+    f"char_domain_next_ballot=CHAR_DOMAIN:{CHAR_DOMAIN_HEX},{CHAR_DOMAIN_INFO},next_ballot "
+    f"char_domain_is_next_leader_mine=CHAR_DOMAIN:{CHAR_DOMAIN_HEX},{CHAR_DOMAIN_INFO},is_next_leader_mine "
+    f"char_domain_decision_roll_info=CHAR_DOMAIN_INFO:{CHAR_DOMAIN_HEX},{CHAR_DOMAIN_INFO} "
+    "char_active_bond_info=CHAR_BONDS_INFO:active"
+)
+
+
+def uses_char_bitcoin(tanks: list) -> bool:
+    return any(entry["version"] == CHAR_BITCOIN_TAG for entry in tanks)
 
 
 def custom_graph(
@@ -96,21 +115,29 @@ def custom_graph(
         yaml.dump(network_yaml_data, f, default_flow_style=False)
 
     # Generate node-defaults.yaml
+    default_config = (
+        f"rpcauth={FORK_OBSERVER_RPCAUTH}\n"
+        + "rpcwhitelist=forkobserver:getchaintips,getblockheader,getblockhash,getblock,getnetworkinfo\n"
+        + "rpcwhitelistdefault=0\n"
+        + "debug=rpc\n"
+    )
+    if uses_char_bitcoin(tanks):
+        default_config += "charenable=1\ndebug=char\n"
+
     defaults_yaml_content = {
         "chain": "regtest",
         "image": {
             "repository": DEFAULT_IMAGE_REPO,
             "pullPolicy": "IfNotPresent",
         },
-        "defaultConfig": f"rpcauth={FORK_OBSERVER_RPCAUTH}\n"
-        + "rpcwhitelist=forkobserver:getchaintips,getblockheader,getblockhash,getblock,getnetworkinfo\n"
-        + "rpcwhitelistdefault=0\n"
-        + "debug=rpc\n",
+        "defaultConfig": default_config,
     }
 
     # Configure logging
     defaults_yaml_content["collectLogs"] = logging
     defaults_yaml_content["metricsExport"] = logging
+    if logging and uses_char_bitcoin(tanks):
+        defaults_yaml_content["metrics"] = CHAR_DASHBOARD_METRICS
 
     with open(os.path.join(datadir, "node-defaults.yaml"), "w") as f:
         yaml.dump(defaults_yaml_content, f, default_flow_style=False, sort_keys=False)

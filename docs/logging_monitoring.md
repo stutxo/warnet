@@ -90,6 +90,26 @@ JSON keys to resolve the desired data:
 label=method(arguments)[JSON result key][...]
 ```
 
+Two helper prefixes are supported for values that are not direct gauges:
+
+```
+label=COUNT:method(arguments),key,value
+label=HASH:method(arguments)[JSON result key][...]
+label=CHAR_DOMAIN:domain_hex,domain_info,result_key
+label=CHAR_DOMAIN_HASH:domain_hex,domain_info,result_key
+label=CHAR_DOMAIN_INFO:domain_hex,domain_info
+label=CHAR_BONDS_INFO:active
+```
+
+`COUNT:` counts matching objects in an RPC result list. `HASH:` turns a string,
+object, or list result into a stable numeric fingerprint so nodes can be compared
+in Prometheus/Grafana while exact values stay in node logs. `CHAR_DOMAIN:` and
+`CHAR_DOMAIN_HASH:` guard `getdomaininfo` behind `domain_registry("list")`, so
+domain metrics stay empty until the scheduled domain exists. `CHAR_DOMAIN_INFO:`
+exports exact string values such as decision roll hashes as metric labels for
+Grafana table panels. `CHAR_BONDS_INFO:active` exports open `getallcharbonds(1)`
+rows as labels, including bond txid, amount, and attestation summary fields.
+
 For example, the default metrics listed above would be explicitly configured as follows:
 
 ```yaml
@@ -98,6 +118,31 @@ nodes:
     metricsExport: true
     metrics: blocks=getblockcount() inbounds=getnetworkinfo()["connections_in"] outbounds=getnetworkinfo()["connections_out"] mempool_size=getmempoolinfo()["size"]
 ```
+
+For Char Bitcoin networks created by `warnet new` or `warnet create`, Warnet
+adds these metrics automatically when Grafana logging is enabled. For a manually
+edited network, enable metrics on every tank and scrape the same scheduled
+domain from each node. The default `char_setup.py` domain is
+`edfba5f37483dac7484bed0b573e85b88051dbe445665ffd27fbcb742adbb090`
+(`sha256("warnet")`):
+
+```yaml
+nodes:
+  - name: tank-0000
+    metricsExport: true
+    metrics: >
+      blocks=getblockcount()
+      inbounds=getnetworkinfo()["connections_in"]
+      outbounds=getnetworkinfo()["connections_out"]
+      mempool_size=getmempoolinfo()["size"]
+      char_domain_next_ballot=CHAR_DOMAIN:edfba5f37483dac7484bed0b573e85b88051dbe445665ffd27fbcb742adbb090,warnet,next_ballot
+      char_domain_is_next_leader_mine=CHAR_DOMAIN:edfba5f37483dac7484bed0b573e85b88051dbe445665ffd27fbcb742adbb090,warnet,is_next_leader_mine
+      char_domain_decision_roll_info=CHAR_DOMAIN_INFO:edfba5f37483dac7484bed0b573e85b88051dbe445665ffd27fbcb742adbb090,warnet
+      char_active_bond_info=CHAR_BONDS_INFO:active
+```
+
+Repeat the same `metrics` block for each tank you want on the Char Roll
+Agreement dashboard if you are not using the generated Char defaults.
 
 The data can be retrieved directly from the Prometheus exporter container in the tank pod via port `9332`, example:
 

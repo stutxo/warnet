@@ -278,6 +278,37 @@ class CharSetup(Commander):
             )
         self.log.info(f"Verified {len(seen)} visible Char bond(s)")
 
+    def verify_domain_roll_agreement(self):
+        rolls = []
+        for node in self.nodes:
+            info = node.getdomaininfo(self.options.domain_preimage)
+            rolls.append(
+                {
+                    "tank": node.tank,
+                    "next_ballot": info["next_ballot"],
+                    "next_leader_bond": info["next_leader_bond"],
+                    "is_next_leader_mine": info["is_next_leader_mine"],
+                }
+            )
+
+        expected = (rolls[0]["next_ballot"], rolls[0]["next_leader_bond"])
+        mismatches = [
+            roll
+            for roll in rolls
+            if (roll["next_ballot"], roll["next_leader_bond"]) != expected
+        ]
+        if mismatches:
+            raise AssertionError(
+                f"Char domain roll disagreement for {self.options.domain_info}: {rolls}"
+            )
+
+        leaders = [roll["tank"] for roll in rolls if roll["is_next_leader_mine"]]
+        self.log.info(
+            f"Verified Char roll agreement for {self.options.domain_info}: "
+            f"next_ballot={expected[0]} next_leader_bond={expected[1]} "
+            f"local_leaders={leaders}"
+        )
+
     def run_test(self):
         if not self.nodes:
             raise AssertionError("No tanks found")
@@ -296,7 +327,9 @@ class CharSetup(Commander):
         self.activate_bonds(wallets)
         self.verify_bonds()
         self.schedule_domain()
+        self.verify_domain_roll_agreement()
         self.submit_dummy_app_payload()
+        self.verify_domain_roll_agreement()
 
         for node in self.nodes:
             info = node.getdomaininfo(self.options.domain_preimage)
