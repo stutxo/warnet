@@ -14,6 +14,7 @@ except Exception:
 
 DEFAULT_DOMAIN_INFO = "warnet"
 DEFAULT_DOMAIN_PREIMAGE = str_to_hex(DEFAULT_DOMAIN_INFO)
+DEFAULT_DUMMY_APP_PAYLOAD = "hello_char"
 COINBASE_MATURITY = 100
 CHAR_STAKE_EPOCH_LENGTH_BLOCKS = 18
 CHAR_STAKE_ACTIVATION_LAG_EPOCHS = 2
@@ -70,6 +71,16 @@ class CharSetup(Commander):
             "--skip-activation",
             action="store_true",
             help="Skip mining to the active Char stake snapshot",
+        )
+        parser.add_argument(
+            "--dummy-app-payload",
+            default=DEFAULT_DUMMY_APP_PAYLOAD,
+            help=f"String payload to submit to the scheduled domain (default: {DEFAULT_DUMMY_APP_PAYLOAD})",
+        )
+        parser.add_argument(
+            "--skip-dummy-app",
+            action="store_true",
+            help="Skip submitting the dummy app payload after scheduling the domain",
         )
 
     def wait_char_indexes_caught_up(self, timeout=120):
@@ -221,6 +232,37 @@ class CharSetup(Commander):
                     f"{node.tank} registry does not list {self.options.domain_info}"
                 )
 
+    def submit_dummy_app_payload(self):
+        if self.options.skip_dummy_app:
+            self.log.info("Skipping dummy app payload")
+            return
+
+        payload = self.options.dummy_app_payload
+        if not payload:
+            raise AssertionError("dummy app payload cannot be empty")
+
+        domain = self.options.domain_preimage
+        payload_hex = payload.encode("utf-8").hex()
+        leader_infos = []
+
+        for node in self.nodes:
+            info = node.getdomaininfo(domain)
+            leader_infos.append((node.tank, info["next_ballot"], info["next_leader_bond"]))
+            if not info["is_next_leader_mine"]:
+                continue
+
+            result = node.addreferendumvote([{domain: payload_hex}], "is_leader")
+            if not result.get(domain):
+                raise AssertionError(f"{node.tank} failed to submit dummy app payload")
+
+            self.log.info(
+                f"{node.tank} submitted dummy app payload {payload!r} "
+                f"to {self.options.domain_info} at ballot {info['next_ballot']}"
+            )
+            return
+
+        raise AssertionError(f"No local tank owns the next leader bond: {leader_infos}")
+
     def verify_bonds(self):
         missing_owned = []
         for node in self.nodes:
@@ -254,6 +296,7 @@ class CharSetup(Commander):
         self.activate_bonds(wallets)
         self.verify_bonds()
         self.schedule_domain()
+        self.submit_dummy_app_payload()
 
         for node in self.nodes:
             info = node.getdomaininfo(self.options.domain_preimage)

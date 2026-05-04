@@ -3,11 +3,14 @@ from enum import Enum
 from importlib.resources import files
 from pathlib import Path
 
-SUPPORTED_TAGS = []
+CHAR_BITCOIN_TAG = "judica-org/char-bitcoin:30.0.0"
+
+BITCOINCORE_TAGS = []
 tags_file_path = Path(__file__).with_name("bitcoincore.tags")
 with tags_file_path.open() as f:
-    SUPPORTED_TAGS = [line.strip() for line in f if line.strip()][::-1]
-DEFAULT_TAG = SUPPORTED_TAGS[0]
+    BITCOINCORE_TAGS = [line.strip() for line in f if line.strip()][::-1]
+SUPPORTED_TAGS = [CHAR_BITCOIN_TAG] + BITCOINCORE_TAGS
+DEFAULT_TAG = BITCOINCORE_TAGS[0]
 
 DEFAULT_NAMESPACE = "default"
 LOGGING_NAMESPACE = "warnet-logging"

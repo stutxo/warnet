@@ -82,11 +82,8 @@ and how many random graph connections to start each node with.
 warnet new /my/work/stuff/projectname
 ```
 
-When prompted for the Bitcoin node version, choose `other` and enter:
-
-```text
-judica-org/char-bitcoin:30.0.0
-```
+When prompted for the Bitcoin node version, choose
+`judica-org/char-bitcoin:30.0.0`.
 
 Enable Grafana logging when prompted so `warnet dashboard` has metrics.
 

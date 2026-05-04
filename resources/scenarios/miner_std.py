@@ -5,19 +5,10 @@ from time import sleep
 from commander import Commander
 
 
-class Miner:
-    def __init__(self, node, mature):
-        self.node = node
-        self.wallet = Commander.ensure_miner(self.node)
-        self.addr = self.wallet.getnewaddress()
-        self.mature = mature
-
-
 class MinerStd(Commander):
     def set_test_params(self):
         # This is just a minimum
-        self.num_nodes = 0
-        self.miners = []
+        self.num_nodes = 1
 
     def add_options(self, parser):
         parser.description = "Generate blocks over time"
@@ -51,27 +42,30 @@ class MinerStd(Commander):
     def run_test(self):
         self.log.info("Starting miners.")
         if self.options.tank:
-            self.miners = [Miner(self.tanks[self.options.tank], self.options.mature)]
+            miner_nodes = [self.tanks[self.options.tank]]
+        elif self.options.allnodes:
+            miner_nodes = self.nodes
         else:
-            max_miners = len(self.nodes) if self.options.allnodes else 1
-            for index in range(max_miners):
-                self.miners.append(Miner(self.nodes[index], self.options.mature))
+            miner_nodes = self.nodes[:1]
 
+        miners = []
+        for node in miner_nodes:
+            wallet = self.ensure_miner(node)
+            miners.append((node, wallet.getnewaddress()))
+
+        num = 101 if self.options.mature else 1
         while True:
-            for miner in self.miners:
-                num = 1
-                if miner.mature:
-                    num = 101
-                    miner.mature = False
+            for node, addr in miners:
                 try:
-                    self.generatetoaddress(miner.node, num, miner.addr, sync_fun=self.no_op)
-                    height = miner.node.getblockcount()
+                    self.generatetoaddress(node, num, addr, sync_fun=self.no_op)
+                    height = node.getblockcount()
                     self.log.info(
-                        f"generated {num} block(s) from node {miner.node.index}. New chain height: {height}"
+                        f"generated {num} block(s) from node {node.index}. New chain height: {height}"
                     )
                 except Exception as e:
-                    self.log.error(f"node {miner.node.index} error: {e}")
+                    self.log.error(f"node {node.index} error: {e}")
                 sleep(self.options.interval)
+            num = 1
 
 
 def main():
