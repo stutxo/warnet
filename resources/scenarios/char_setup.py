@@ -235,7 +235,7 @@ class CharSetup(Commander):
     def submit_dummy_app_payload(self):
         if self.options.skip_dummy_app:
             self.log.info("Skipping dummy app payload")
-            return
+            return None
 
         payload = self.options.dummy_app_payload
         if not payload:
@@ -259,9 +259,76 @@ class CharSetup(Commander):
                 f"{node.tank} submitted dummy app payload {payload!r} "
                 f"to {self.options.domain_info} at ballot {info['next_ballot']}"
             )
-            return
+            return {
+                "leader": node,
+                "ballot": info["next_ballot"],
+                "payload_hex": payload_hex,
+            }
 
         raise AssertionError(f"No local tank owns the next leader bond: {leader_infos}")
+
+    def wait_domain_decision_agreement(self, ballot, payload_hex, timeout=180):
+        domain = self.options.domain_preimage
+        last_snapshots = []
+
+        def snapshot():
+            nonlocal last_snapshots
+            snapshots = []
+            decisions = set()
+
+            for node in self.nodes:
+                try:
+                    result = node.getreferendumresolution(domain, ballot, ballot, 2)
+                except Exception as e:
+                    snapshots.append({"tank": node.tank, "error": str(e)})
+                    last_snapshots = snapshots
+                    return False
+
+                if not result:
+                    snapshots.append({"tank": node.tank, "found": False})
+                    last_snapshots = snapshots
+                    return False
+
+                entry = result[0]
+                roll = entry.get("decision_roll") or {}
+                roll_hash = roll.get("roll_hash")
+                data_hash = roll.get("data_hash")
+                data = roll.get("data")
+                node_snapshot = {
+                    "tank": node.tank,
+                    "found": entry.get("found"),
+                    "resolution_type": entry.get("resolution_type"),
+                    "roll_hash": roll_hash,
+                    "data_hash": data_hash,
+                    "data": data,
+                }
+                snapshots.append(node_snapshot)
+
+                if not entry.get("found") or entry.get("resolution_type") != "decision":
+                    last_snapshots = snapshots
+                    return False
+                if not roll_hash or not data_hash or data != payload_hex:
+                    last_snapshots = snapshots
+                    return False
+
+                decisions.add((roll_hash, data_hash))
+
+            last_snapshots = snapshots
+            return len(decisions) == 1
+
+        try:
+            self.wait_until(snapshot, timeout=timeout)
+        except AssertionError as e:
+            raise AssertionError(
+                f"Timed out waiting for {self.options.domain_info} ballot {ballot} "
+                f"decision agreement: {last_snapshots}"
+            ) from e
+
+        agreed = last_snapshots[0]
+        self.log.info(
+            f"Verified {self.options.domain_info} ballot {ballot} decision agreement: "
+            f"roll_hash={agreed['roll_hash']} data_hash={agreed['data_hash']}"
+        )
 
     def verify_bonds(self):
         missing_owned = []
@@ -328,7 +395,16 @@ class CharSetup(Commander):
         self.verify_bonds()
         self.schedule_domain()
         self.verify_domain_roll_agreement()
-        self.submit_dummy_app_payload()
+        dummy_vote = self.submit_dummy_app_payload()
+        if dummy_vote is not None:
+            CharUtil(dummy_vote["leader"], self).attest_bonds_and_wait()
+            for node in self.nodes:
+                CharUtil(node, self).attest_bonds_and_wait(wait_for_global_indexes=False)
+            self.wait_char_indexes_caught_up(timeout=180)
+            self.wait_domain_decision_agreement(
+                dummy_vote["ballot"],
+                dummy_vote["payload_hex"],
+            )
         self.verify_domain_roll_agreement()
 
         for node in self.nodes:
