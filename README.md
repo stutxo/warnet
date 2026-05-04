@@ -105,11 +105,8 @@ The default domain hex is `sha256("warnet")`:
 warnet run /my/work/stuff/projectname/scenarios/char_setup.py
 ```
 
-For example, you can start mining blocks...
-
-```sh
-warnet run /my/work/stuff/projectname/scenarios/miner_std.py
-```
+By default, `char_setup.py` keeps mining one block every 30 seconds after setup.
+Pass `--no-continuous-mining` if you want it to exit after setup instead.
 
 ... and then observe network connectivity and statistics in your browser:
 

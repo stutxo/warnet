@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from decimal import Decimal
+from time import sleep
 
 try:
     from commander import Commander
@@ -22,6 +23,13 @@ CHAR_STAKE_ACTIVATION_LAG_EPOCHS = 2
 
 def decimal_arg(value):
     amount = Decimal(value)
+    if amount <= 0:
+        raise ValueError("amount must be positive")
+    return amount
+
+
+def positive_int_arg(value):
+    amount = int(value)
     if amount <= 0:
         raise ValueError("amount must be positive")
     return amount
@@ -82,6 +90,19 @@ class CharSetup(Commander):
             action="store_true",
             help="Skip submitting the dummy app payload after scheduling the domain",
         )
+        parser.add_argument(
+            "--mine-interval",
+            type=positive_int_arg,
+            default=30,
+            help="Seconds between blocks after setup (default: 30)",
+        )
+        parser.add_argument(
+            "--no-continuous-mining",
+            dest="continuous_mining",
+            action="store_false",
+            help="Exit after setup instead of mining a block every --mine-interval seconds",
+        )
+        parser.set_defaults(continuous_mining=True)
 
     def wait_char_indexes_caught_up(self, timeout=120):
         def ready():
@@ -376,6 +397,26 @@ class CharSetup(Commander):
             f"local_leaders={leaders}"
         )
 
+    def mine_forever(self, node, wallet):
+        address = wallet.getnewaddress()
+        interval = self.options.mine_interval
+        self.log.info(
+            f"Starting continuous mining from {node.tank}: "
+            f"1 block every {interval} second(s)"
+        )
+
+        while True:
+            try:
+                self.generatetoaddress(node, 1, address, sync_fun=self.no_op)
+                self.wait_char_indexes_caught_up(timeout=180)
+                height = node.getblockcount()
+                self.log.info(
+                    f"generated 1 block from {node.tank}. New chain height: {height}"
+                )
+            except Exception as e:
+                self.log.error(f"{node.tank} mining error: {e}")
+            sleep(interval)
+
     def run_test(self):
         if not self.nodes:
             raise AssertionError("No tanks found")
@@ -413,6 +454,9 @@ class CharSetup(Commander):
                 f"{node.tank} domain next_ballot={info['next_ballot']} "
                 f"is_next_leader_mine={info['is_next_leader_mine']}"
             )
+
+        if self.options.continuous_mining:
+            self.mine_forever(source_node, source_wallet)
 
 
 def main():
