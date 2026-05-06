@@ -41,6 +41,11 @@ from .k8s import (
     wait_for_ingress_controller,
     wait_for_pod_ready,
 )
+from .network_conditions import (
+    apply_network_conditions,
+    enable_netem_for_node,
+    network_conditions_enabled,
+)
 from .process import run_command, stream_command
 
 HINT = "\nAre you trying to run a scenario? See `warnet run --help`"
@@ -397,6 +402,7 @@ def deploy_network(directory: Path, debug: bool = False, namespace: Optional[str
     with default_file_path.open() as f:
         default_file = yaml.safe_load(f)
 
+    netem_enabled = network_conditions_enabled(network_file)
     needs_ln_init = False
     supported_ln_projects = ["lnd", "cln"]
     merged = network_file["nodes"].copy()
@@ -411,12 +417,16 @@ def deploy_network(directory: Path, debug: bool = False, namespace: Optional[str
 
     processes = []
     for node in network_file["nodes"]:
-        p = Process(target=deploy_single_node, args=(node, directory, debug, namespace))
+        node_values = enable_netem_for_node(node) if netem_enabled else node
+        p = Process(target=deploy_single_node, args=(node_values, directory, debug, namespace))
         p.start()
         processes.append(p)
 
     for p in processes:
         p.join()
+
+    if netem_enabled:
+        apply_network_conditions(network_file, namespace=namespace)
 
     if needs_ln_init:
         name = _run(

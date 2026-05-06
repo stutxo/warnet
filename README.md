@@ -11,6 +11,7 @@ Monitor and analyze the emergent behaviors of Bitcoin networks.
 * Monitor and visualize performance data from Bitcoin nodes.
 * Connect to a large network running in a remote cluster, or a smaller network running locally.
 * Add a Lightning Network with its own channel topology and payment activity.
+* Simulate seeded random network latency between configured tank peers.
 
 ## Documentation
 
@@ -18,6 +19,7 @@ Monitor and analyze the emergent behaviors of Bitcoin networks.
 - [Installation](/docs/install.md)
 - [CLI Commands](/docs/warnet.md)
 - [Network configuration with yaml files](/docs/config.md)
+- [Network conditions](/docs/network-conditions.md)
 - [Plugins](/docs/plugins.md)
 - [Scenarios](/docs/scenarios.md)
 - [Monitoring](/docs/logging_monitoring.md)
@@ -105,8 +107,8 @@ The default domain hex is `sha256("warnet")`:
 warnet run /my/work/stuff/projectname/scenarios/char_setup.py
 ```
 
-By default, `char_setup.py` keeps mining one block every 30 seconds after setup.
-Pass `--no-continuous-mining` if you want it to exit after setup instead.
+`char_setup.py` keeps mining one block every 30 seconds after setup so CHAR
+continues to make progress during observation.
 
 ... and then observe network connectivity and statistics in your browser:
 

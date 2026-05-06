@@ -50,6 +50,8 @@ jobs:
           - signet_test.py
           - scenarios_test.py
           - namespace_admin_test.py
+          - network_conditions_unit_test.py
+          - network_conditions_integration_test.py
           - wargames_test.py
     steps:
       - uses: actions/checkout@v4

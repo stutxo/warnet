@@ -81,8 +81,8 @@ spec:
           subPath: bitcoin.conf
     {{- if .Values.metricsExport }}
     - name: prometheus
-      image: bitcoindevproject/bitcoin-exporter:latest
-      imagePullPolicy: IfNotPresent
+      image: {{ .Values.metricsImage.repository }}:{{ .Values.metricsImage.tag }}
+      imagePullPolicy: {{ .Values.metricsImage.pullPolicy }}
       ports:
         - name: prom-metrics
           containerPort: {{ .Values.prometheusMetricsPort }}
@@ -101,6 +101,49 @@ spec:
           value: {{ .Values.metrics }}
         {{- end }}
     {{- end}}
+    {{- if .Values.charApp.enabled }}
+    - name: char-app
+      image: {{ .Values.charApp.image.repository }}:{{ .Values.charApp.image.tag }}
+      imagePullPolicy: {{ .Values.charApp.image.pullPolicy }}
+      env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: CHAR_RPC_HOST
+          value: "127.0.0.1"
+        - name: CHAR_RPC_PORT
+          value: "{{ index .Values.global .Values.global.chain "RPCPort" }}"
+        - name: CHAR_RPC_USER
+          value: user
+        - name: CHAR_RPC_PASSWORD
+          value: {{ .Values.global.rpcpassword }}
+        - name: CHAR_ZMQ_URL
+          value: "tcp://127.0.0.1:{{ .Values.charApp.zmqPort | default .Values.global.ZMQBlockPort }}"
+        - name: CHAR_DOMAIN_INFO
+          value: {{ .Values.charApp.domainInfo | quote }}
+        - name: CHAR_DOMAIN_PREIMAGE
+          value: {{ .Values.charApp.domainPreimage | quote }}
+        - name: CHAR_POLL_INTERVAL_SECONDS
+          value: "{{ .Values.charApp.pollIntervalSeconds }}"
+        - name: CHAR_DECISION_SCAN_WINDOW
+          value: "{{ .Values.charApp.decisionScanWindow }}"
+    {{- end }}
+    {{- if .Values.netem.enabled }}
+    - name: netem
+      image: {{ .Values.netem.image.repository }}:{{ .Values.netem.image.tag }}
+      imagePullPolicy: {{ .Values.netem.image.pullPolicy }}
+      securityContext:
+        capabilities:
+          add:
+            - NET_ADMIN
+            - NET_RAW
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          {{- .Values.netem.setupCommand | nindent 10 }}
+          while true; do sleep 3600; done
+    {{- end }}
     {{- with .Values.extraContainers }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

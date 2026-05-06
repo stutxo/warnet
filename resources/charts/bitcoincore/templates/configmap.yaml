@@ -14,6 +14,10 @@ data:
     rpcpassword={{ .Values.global.rpcpassword }}
     zmqpubrawblock=tcp://0.0.0.0:{{ .Values.global.ZMQBlockPort }}
     zmqpubrawtx=tcp://0.0.0.0:{{ .Values.global.ZMQTxPort }}
+    {{- if .Values.charApp.enabled }}
+    zmqpubleader=tcp://0.0.0.0:{{ .Values.charApp.zmqPort | default .Values.global.ZMQBlockPort }}
+    zmqpubdecisionroll=tcp://0.0.0.0:{{ .Values.charApp.zmqPort | default .Values.global.ZMQBlockPort }}
+    {{- end }}
     {{- .Values.defaultConfig | nindent 4 }}
     {{- .Values.config | nindent 4 }}
     {{- range .Values.addnode }}

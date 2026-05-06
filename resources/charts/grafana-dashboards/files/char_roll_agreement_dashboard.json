@@ -3,7 +3,7 @@
   "uid": "char-domain-state",
   "refresh": "5s",
   "schemaVersion": 39,
-  "version": 8,
+  "version": 10,
   "time": {
     "from": "now-30m",
     "to": "now"
@@ -265,7 +265,7 @@
           "range": true
         }
       ],
-      "title": "Current Ballot By Node",
+      "title": "Next Ballot By Node",
       "type": "timeseries"
     },
     {
@@ -556,7 +556,7 @@
           "range": false
         }
       ],
-      "title": "Last Decision Roll Seen By Node",
+      "title": "Latest Decided Roll By Node",
       "transformations": [
         {
           "id": "organize",
@@ -571,22 +571,103 @@
               "endpoint": true,
               "instance": true,
               "job": true,
-              "latest_decision_data_hash": true,
-              "latest_decision_zeitgeist": true,
               "namespace": true,
-              "next_ballot": true,
-              "next_leader_bond": true,
               "service": true
             },
             "indexByName": {
               "pod": 0,
-              "latest_decided_ballot": 1,
-              "latest_decision_roll_hash": 2
+              "next_ballot": 1,
+              "next_leader_bond": 2,
+              "is_next_leader_mine": 3,
+              "latest_decided_ballot": 4,
+              "latest_decision_roll_hash": 5,
+              "latest_decision_data_hash": 6,
+              "latest_decision_data": 7,
+              "latest_decision_data_text": 8,
+              "latest_decision_zeitgeist": 9,
+              "latest_decision_found": 10,
+              "latest_decision_resolution_type": 11
             },
             "renameByName": {
               "pod": "node",
-              "latest_decided_ballot": "decided_ballot",
-              "latest_decision_roll_hash": "decision_roll_hash"
+              "next_ballot": "next_ballot",
+              "next_leader_bond": "next_leader_bond",
+              "is_next_leader_mine": "is_next_leader",
+              "latest_decided_ballot": "last_decided_ballot",
+              "latest_decision_roll_hash": "roll_hash",
+              "latest_decision_data_hash": "data_hash",
+              "latest_decision_data": "data",
+              "latest_decision_data_text": "data_text",
+              "latest_decision_zeitgeist": "zeitgeist",
+              "latest_decision_found": "found",
+              "latest_decision_resolution_type": "resolution_type"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2094"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2094"
+          },
+          "expr": "count by (latest_decided_ballot, latest_decision_roll_hash, latest_decision_data_hash, latest_decision_data, latest_decision_data_text, latest_decision_zeitgeist, latest_decision_found, latest_decision_resolution_type) (char_domain_decision_roll_info)",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "title": "Latest Decided Roll Groups",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true
+            },
+            "indexByName": {
+              "latest_decided_ballot": 0,
+              "latest_decision_roll_hash": 1,
+              "latest_decision_data_hash": 2,
+              "latest_decision_data": 3,
+              "latest_decision_data_text": 4,
+              "latest_decision_zeitgeist": 5,
+              "latest_decision_found": 6,
+              "latest_decision_resolution_type": 7,
+              "Value": 8
+            },
+            "renameByName": {
+              "latest_decided_ballot": "last_decided_ballot",
+              "latest_decision_roll_hash": "roll_hash",
+              "latest_decision_data_hash": "data_hash",
+              "latest_decision_data": "data",
+              "latest_decision_data_text": "data_text",
+              "latest_decision_zeitgeist": "zeitgeist",
+              "latest_decision_found": "found",
+              "latest_decision_resolution_type": "resolution_type",
+              "Value": "nodes_seen"
             }
           }
         }
@@ -606,7 +687,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 26
       },
       "options": {
         "cellHeight": "sm",
@@ -618,7 +699,75 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2094"
           },
-          "expr": "count by (txid, issuer, amount, closed, attestation_ballot, attestation_chain_id, genesis_char_hash) (char_active_bond_info)",
+          "expr": "char_domain_decision_roll_history",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "title": "Recent Decision Roll History By Node",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "container": true,
+              "domain": true,
+              "domain_info": true,
+              "endpoint": true,
+              "history_index": true,
+              "instance": true,
+              "job": true,
+              "namespace": true,
+              "service": true
+            },
+            "indexByName": {
+              "pod": 0,
+              "ballot": 1,
+              "found": 2,
+              "resolution_type": 3,
+              "roll_hash": 4,
+              "data_hash": 5,
+              "data": 6,
+              "data_text": 7
+            },
+            "renameByName": {
+              "pod": "node"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2094"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2094"
+          },
+          "expr": "count by (txid, issuer, amount, closed) (char_active_bond_info)",
           "format": "table",
           "instant": true,
           "range": false
@@ -640,14 +789,12 @@
             "indexByName": {
               "txid": 0,
               "amount": 1,
-              "Value": 2,
-              "attestation_ballot": 3
+              "Value": 2
             },
             "renameByName": {
               "txid": "bond_txid",
               "amount": "amount_btc",
-              "Value": "nodes_seen",
-              "attestation_ballot": "last_attestation_ballot"
+              "Value": "nodes_seen"
             }
           }
         }

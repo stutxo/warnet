@@ -8,3 +8,5 @@ dist/
 build/
 **/kubeconfigs/
 src/warnet/_version.py
+char-issue-exports/
+debug-logs/

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from decimal import Decimal
+from threading import Thread
 from time import sleep
 
 try:
@@ -13,19 +14,18 @@ try:
 except Exception:
     from resources.scenarios.char_framework.char_util import CharUtil, str_to_hex
 
+
 DEFAULT_DOMAIN_INFO = "warnet"
 DEFAULT_DOMAIN_PREIMAGE = str_to_hex(DEFAULT_DOMAIN_INFO)
-DEFAULT_DUMMY_APP_PAYLOAD = "hello_char"
+MINING_TANK = "tank-0000"
+STAKE_AMOUNT = Decimal("0.5")
+FUNDING_AMOUNT = STAKE_AMOUNT + Decimal("3")
+MINE_INTERVAL_SECONDS = 30
+RPC_TIMEOUT_SECONDS = 6000
 COINBASE_MATURITY = 100
+REGTEST_COINBASE_SUBSIDY = Decimal("50")
 CHAR_STAKE_EPOCH_LENGTH_BLOCKS = 18
 CHAR_STAKE_ACTIVATION_LAG_EPOCHS = 2
-
-
-def decimal_arg(value):
-    amount = Decimal(value)
-    if amount <= 0:
-        raise ValueError("amount must be positive")
-    return amount
 
 
 def positive_int_arg(value):
@@ -38,85 +38,93 @@ def positive_int_arg(value):
 class CharSetup(Commander):
     def set_test_params(self):
         self.num_nodes = 0
+        self.rpc_timeout = RPC_TIMEOUT_SECONDS
 
     def add_options(self, parser):
-        parser.description = "Create one Char bond per tank and schedule an app domain"
-        parser.usage = "warnet run /path/to/char_setup.py [options]"
-        parser.add_argument(
-            "--domain-preimage",
-            default=DEFAULT_DOMAIN_PREIMAGE,
-            help=f"Domain preimage hex to schedule (default: {DEFAULT_DOMAIN_PREIMAGE})",
+        parser.description = (
+            "Create one active CHAR bond per CHAR tank, schedule the default "
+            "app domain, then mine one block every 30 seconds."
         )
-        parser.add_argument(
-            "--domain-info",
-            default=DEFAULT_DOMAIN_INFO,
-            help=f"Domain info/name to store in the registry (default: {DEFAULT_DOMAIN_INFO})",
-        )
-        parser.add_argument(
-            "--stake-amount",
-            type=decimal_arg,
-            default=Decimal("0.5"),
-            help="Stake amount for each bond in BTC (default: 0.5)",
-        )
-        parser.add_argument(
-            "--funding-amount",
-            type=decimal_arg,
-            default=None,
-            help="BTC to send from tank 0 to each other tank before bond creation",
-        )
-        parser.add_argument(
-            "--activation-blocks",
-            type=int,
-            default=None,
-            help="Override the number of blocks to mine after bond confirmation",
-        )
-        parser.add_argument(
-            "--force-new-bonds",
-            action="store_true",
-            help="Create a new bond even when a tank already owns one",
-        )
-        parser.add_argument(
-            "--skip-activation",
-            action="store_true",
-            help="Skip mining to the active Char stake snapshot",
-        )
-        parser.add_argument(
-            "--dummy-app-payload",
-            default=DEFAULT_DUMMY_APP_PAYLOAD,
-            help=f"String payload to submit to the scheduled domain (default: {DEFAULT_DUMMY_APP_PAYLOAD})",
-        )
-        parser.add_argument(
-            "--skip-dummy-app",
-            action="store_true",
-            help="Skip submitting the dummy app payload after scheduling the domain",
-        )
+        parser.usage = "warnet run /path/to/char_setup.py"
         parser.add_argument(
             "--mine-interval",
             type=positive_int_arg,
-            default=30,
-            help="Seconds between blocks after setup (default: 30)",
+            default=MINE_INTERVAL_SECONDS,
+            help=f"Seconds between mined blocks after setup (default: {MINE_INTERVAL_SECONDS})",
         )
-        parser.add_argument(
-            "--no-continuous-mining",
-            dest="continuous_mining",
-            action="store_false",
-            help="Exit after setup instead of mining a block every --mine-interval seconds",
-        )
-        parser.set_defaults(continuous_mining=True)
 
-    def wait_char_indexes_caught_up(self, timeout=120):
+    def wait_for_tanks_connected(self):
+        def tank_connected(tank):
+            expected = int(getattr(tank, "init_peers", 0) or 0)
+            while True:
+                try:
+                    peers = tank.getpeerinfo()
+                    manual = sum(
+                        1
+                        for peer in peers
+                        if peer.get("connection_type") == "manual"
+                        or peer.get("addnode") is True
+                    )
+                    char = sum(
+                        1
+                        for peer in peers
+                        if peer.get("char_capable") is True
+                        or "CHAR" in peer.get("servicesnames", [])
+                    )
+                    total = len(peers)
+                    self.log.info(
+                        f"Tank {tank.tank} connected "
+                        f"manual={manual}/{expected} char={char} total={total}"
+                    )
+                    if expected == 0 or manual >= expected or char >= expected:
+                        return
+                except Exception as e:
+                    self.log.warning(f"Couldn't get peer info from {tank.tank}: {e}")
+                sleep(5)
+
+        threads = [Thread(target=tank_connected, args=(node,)) for node in self.nodes]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.log.info("Network connected")
+
+    def select_mining_node(self):
+        if MINING_TANK not in self.tanks:
+            raise AssertionError(f"Expected mining tank named {MINING_TANK!r}")
+        self.log.info(f"Using {MINING_TANK} as mining/funding source")
+        return self.tanks[MINING_TANK]
+
+    def discover_char_nodes(self):
+        char_nodes = []
+        for node in self.nodes:
+            try:
+                if node.getindexinfo().get("charbondindex") is not None:
+                    char_nodes.append(node)
+            except Exception:
+                continue
+        if not char_nodes:
+            raise AssertionError("No CHAR tanks found; enable charenable=1")
+        self.log.info(
+            "CHAR participant tanks: " + ", ".join(node.tank for node in char_nodes)
+        )
+        return char_nodes
+
+    def char_participants(self):
+        return self.char_nodes
+
+    def wait_char_indexes_caught_up(self, timeout=180):
         def ready():
-            heights = [node.getblockcount() for node in self.nodes]
-            if len(set(heights)) != 1:
+            tips = [node.getbestblockhash() for node in self.nodes]
+            if len(set(tips)) != 1:
                 return False
-            height = heights[0]
-
-            for node in self.nodes:
+            height = self.mining_node.getblockcount()
+            for node in self.char_participants():
+                if node.getblockcount() != height:
+                    return False
                 index_info = node.getindexinfo().get("charbondindex")
                 if index_info is None:
-                    raise AssertionError(
-                        f"{node.tank} is missing charbondindex; set charenable=1"
-                    )
+                    raise AssertionError(f"{node.tank} is missing charbondindex")
                 if not index_info.get("synced", False):
                     return False
                 if index_info.get("best_block_height") != height:
@@ -125,296 +133,193 @@ class CharSetup(Commander):
 
         self.wait_until(ready, timeout=timeout)
 
-    def mine_to_wallet(self, node, wallet, blocks):
+    def mine_to_wallet(self, node, wallet, blocks, *, wait_for_indexes=True):
         if blocks <= 0:
             return []
         address = wallet.getnewaddress()
-        return self.generatetoaddress(node, blocks, address)
-
-    def generate_and_wait(self, node, blocks, *, wait_for_indexes=True, **kwargs):
-        hashes = self.generate(node, blocks, **kwargs)
-        if wait_for_indexes and blocks > 0:
+        blocks_mined = self.generatetoaddress(node, blocks, address)
+        if wait_for_indexes:
             self.wait_char_indexes_caught_up()
-        return hashes
+        return blocks_mined
 
     def activation_blocks_from_tip(self):
-        current_height = self.nodes[0].getblockcount()
-        epoch_length = CHAR_STAKE_EPOCH_LENGTH_BLOCKS
-        next_snapshot = (
-            (current_height + epoch_length - 1) // epoch_length
-        ) * epoch_length
-        target_height = next_snapshot + (
-            CHAR_STAKE_ACTIVATION_LAG_EPOCHS * epoch_length
+        height = self.mining_node.getblockcount()
+        epoch = CHAR_STAKE_EPOCH_LENGTH_BLOCKS
+        next_snapshot = ((height + epoch - 1) // epoch) * epoch
+        activation_height = next_snapshot + (
+            CHAR_STAKE_ACTIVATION_LAG_EPOCHS * epoch
         )
-        return max(0, target_height - current_height)
+        return max(0, activation_height - height)
 
-    def owned_bonds(self, node):
-        return node.getallcharbonds(0)
-
-    def ensure_source_funds(self, source_node, source_wallet, funding_amount):
-        peer_funding = funding_amount * max(0, len(self.nodes) - 1)
-        source_reserve = self.options.stake_amount + Decimal("3")
-        required = peer_funding + source_reserve
+    def ensure_source_funds(self, source_node, source_wallet):
+        funding_targets = [
+            node for node in self.char_participants() if node.tank != source_node.tank
+        ]
+        source_reserve = (
+            FUNDING_AMOUNT
+            if source_node.tank in {node.tank for node in self.char_participants()}
+            else Decimal("1")
+        )
+        required = FUNDING_AMOUNT * len(funding_targets) + source_reserve
         balance = source_wallet.getbalance("*", 1, False)
-
         if balance >= required:
             self.log.info(
                 f"{source_node.tank} wallet has {balance} BTC; required {required} BTC"
             )
             return
 
-        self.log.info(
-            f"{source_node.tank} wallet has {balance} BTC; mining "
-            f"{COINBASE_MATURITY + 1} blocks for setup funds"
+        mature_outputs_needed = int(
+            (required / REGTEST_COINBASE_SUBSIDY).to_integral_value(
+                rounding="ROUND_CEILING"
+            )
         )
-        self.mine_to_wallet(source_node, source_wallet, COINBASE_MATURITY + 1)
-        self.wait_char_indexes_caught_up()
+        blocks = COINBASE_MATURITY + mature_outputs_needed
+        self.log.info(
+            f"{source_node.tank} wallet has {balance} BTC; mining {blocks} "
+            f"setup block(s); required {required} BTC"
+        )
+        self.mine_to_wallet(source_node, source_wallet, blocks)
 
-    def fund_peer_wallets(self, source_node, source_wallet, wallets, funding_amount):
+    def fund_peer_wallets(self, source_node, source_wallet, wallets):
         txids = []
-        for node in self.nodes[1:]:
+        for node in self.char_participants():
+            if node.tank == source_node.tank:
+                continue
             wallet = wallets[node.tank]
             balance = wallet.getbalance("*", 1, False)
-            if balance >= funding_amount:
+            if balance >= FUNDING_AMOUNT:
                 self.log.info(f"{node.tank} wallet already has {balance} BTC")
                 continue
-
-            address = wallet.getnewaddress()
-            txid = source_wallet.sendtoaddress(address, funding_amount)
+            txid = source_wallet.sendtoaddress(wallet.getnewaddress(), FUNDING_AMOUNT)
             txids.append(txid)
-            self.log.info(f"funding {node.tank} with {funding_amount} BTC: {txid}")
+            self.log.info(f"funding {node.tank} with {FUNDING_AMOUNT} BTC: {txid}")
 
-        if not txids:
-            return
+        if txids:
+            self.mine_to_wallet(source_node, source_wallet, 1)
 
-        self.mine_to_wallet(source_node, source_wallet, 1)
-        self.wait_char_indexes_caught_up()
+    def owned_bonds(self, node):
+        return node.getallcharbonds(0)
 
-    def create_bonds(self, wallets):
+    def create_bonds(self):
         created = []
-        for node in self.nodes:
+        for node in self.char_participants():
             existing = self.owned_bonds(node)
-            if existing and not self.options.force_new_bonds:
+            if existing:
                 self.log.info(
                     f"{node.tank} already owns {len(existing)} bond(s); skipping"
                 )
                 continue
-
             tx = CharUtil(node, self).create_bond(
-                self.options.stake_amount,
+                STAKE_AMOUNT,
                 return_tx=True,
-                stake_amount=self.options.stake_amount,
+                stake_amount=STAKE_AMOUNT,
                 generate_block=False,
                 wait_for_indexes=False,
             )
             created.append(tx["txid"])
             self.log.info(f"{node.tank} created bond {tx['txid']}")
 
-        if not created:
-            return created
+        if created:
+            self.sync_mempools(timeout=120)
+            self.mine_to_wallet(
+                self.mining_node,
+                self.wallets[self.mining_node.tank],
+                1,
+                wait_for_indexes=False,
+            )
+            self.wait_char_indexes_caught_up(timeout=180)
 
-        self.sync_mempools(timeout=120)
-        self.mine_to_wallet(self.nodes[0], wallets[self.nodes[0].tank], 1)
+    def activate_bonds(self):
+        blocks = self.activation_blocks_from_tip()
+        self.log.info(f"Mining {blocks} block(s) for active CHAR stake snapshot")
+        self.mine_to_wallet(
+            self.mining_node,
+            self.wallets[self.mining_node.tank],
+            blocks,
+            wait_for_indexes=False,
+        )
         self.wait_char_indexes_caught_up(timeout=180)
-        return created
 
-    def activate_bonds(self, wallets):
-        if self.options.skip_activation:
-            self.log.info("Skipping stake activation mining")
-            return
+    def expected_owned_bond_txids(self):
+        expected = set()
+        missing = []
+        for node in self.char_participants():
+            bonds = self.owned_bonds(node)
+            if not bonds:
+                missing.append(node.tank)
+                continue
+            expected.update(bond["txid"] for bond in bonds if bond.get("txid"))
+        if missing:
+            raise AssertionError(f"nodes missing owned CHAR bonds: {missing}")
+        return expected
 
-        blocks = self.options.activation_blocks
-        if blocks is None:
-            blocks = self.activation_blocks_from_tip()
-        self.log.info(f"Mining {blocks} block(s) for active Char stake snapshot")
-        self.mine_to_wallet(self.nodes[0], wallets[self.nodes[0].tank], blocks)
-        self.wait_char_indexes_caught_up(timeout=180)
+    def wait_for_active_bonds(self):
+        expected = self.expected_owned_bond_txids()
+        if len(expected) < len(self.char_participants()):
+            raise AssertionError(
+                f"expected at least {len(self.char_participants())} bonds, "
+                f"saw {len(expected)}"
+            )
+
+        def active_everywhere():
+            for node in self.char_participants():
+                active = {
+                    bond["txid"]
+                    for bond in node.getallcharbonds(1)
+                    if bond.get("txid") and not bond.get("closed", False)
+                }
+                if not expected.issubset(active):
+                    return False
+            return True
+
+        self.wait_until(active_everywhere, timeout=180)
+        self.log.info(
+            f"Verified {len(expected)} active CHAR bond(s) on "
+            f"{len(self.char_participants())} tank(s)"
+        )
 
     def schedule_domain(self):
-        for node in self.nodes:
+        for node in self.char_participants():
+            scheduled = node.domain_registry("list")
+            if any(entry.get("info") == DEFAULT_DOMAIN_INFO for entry in scheduled):
+                self.log.info(
+                    f"{node.tank} already has scheduled domain {DEFAULT_DOMAIN_INFO}"
+                )
+                continue
             result = node.domain_registry(
                 "schedule",
-                self.options.domain_preimage,
-                self.options.domain_info,
+                DEFAULT_DOMAIN_PREIMAGE,
+                DEFAULT_DOMAIN_INFO,
             )
             if not result.get("success"):
                 raise AssertionError(f"{node.tank} failed to schedule domain")
             self.log.info(
-                f"{node.tank} scheduled domain {self.options.domain_info} "
-                f"({self.options.domain_preimage})"
+                f"{node.tank} scheduled domain {DEFAULT_DOMAIN_INFO} "
+                f"({DEFAULT_DOMAIN_PREIMAGE})"
             )
 
-        for node in self.nodes:
-            scheduled = node.domain_registry("list")
-            if not any(
-                entry.get("info") == self.options.domain_info for entry in scheduled
-            ):
-                raise AssertionError(
-                    f"{node.tank} registry does not list {self.options.domain_info}"
-                )
-
-    def submit_dummy_app_payload(self):
-        if self.options.skip_dummy_app:
-            self.log.info("Skipping dummy app payload")
-            return None
-
-        payload = self.options.dummy_app_payload
-        if not payload:
-            raise AssertionError("dummy app payload cannot be empty")
-
-        domain = self.options.domain_preimage
-        payload_hex = payload.encode("utf-8").hex()
-        leader_infos = []
-
-        for node in self.nodes:
-            info = node.getdomaininfo(domain)
-            leader_infos.append((node.tank, info["next_ballot"], info["next_leader_bond"]))
-            if not info["is_next_leader_mine"]:
-                continue
-
-            result = node.addreferendumvote([{domain: payload_hex}], "is_leader")
-            if not result.get(domain):
-                raise AssertionError(f"{node.tank} failed to submit dummy app payload")
-
-            self.log.info(
-                f"{node.tank} submitted dummy app payload {payload!r} "
-                f"to {self.options.domain_info} at ballot {info['next_ballot']}"
-            )
-            return {
-                "leader": node,
-                "ballot": info["next_ballot"],
-                "payload_hex": payload_hex,
-            }
-
-        raise AssertionError(f"No local tank owns the next leader bond: {leader_infos}")
-
-    def wait_domain_decision_agreement(self, ballot, payload_hex, timeout=180):
-        domain = self.options.domain_preimage
-        last_snapshots = []
-
-        def snapshot():
-            nonlocal last_snapshots
-            snapshots = []
-            decisions = set()
-
-            for node in self.nodes:
-                try:
-                    result = node.getreferendumresolution(domain, ballot, ballot, 2)
-                except Exception as e:
-                    snapshots.append({"tank": node.tank, "error": str(e)})
-                    last_snapshots = snapshots
-                    return False
-
-                if not result:
-                    snapshots.append({"tank": node.tank, "found": False})
-                    last_snapshots = snapshots
-                    return False
-
-                entry = result[0]
-                roll = entry.get("decision_roll") or {}
-                roll_hash = roll.get("roll_hash")
-                data_hash = roll.get("data_hash")
-                data = roll.get("data")
-                node_snapshot = {
-                    "tank": node.tank,
-                    "found": entry.get("found"),
-                    "resolution_type": entry.get("resolution_type"),
-                    "roll_hash": roll_hash,
-                    "data_hash": data_hash,
-                    "data": data,
-                }
-                snapshots.append(node_snapshot)
-
-                if not entry.get("found") or entry.get("resolution_type") != "decision":
-                    last_snapshots = snapshots
-                    return False
-                if not roll_hash or not data_hash or data != payload_hex:
-                    last_snapshots = snapshots
-                    return False
-
-                decisions.add((roll_hash, data_hash))
-
-            last_snapshots = snapshots
-            return len(decisions) == 1
-
-        try:
-            self.wait_until(snapshot, timeout=timeout)
-        except AssertionError as e:
-            raise AssertionError(
-                f"Timed out waiting for {self.options.domain_info} ballot {ballot} "
-                f"decision agreement: {last_snapshots}"
-            ) from e
-
-        agreed = last_snapshots[0]
-        self.log.info(
-            f"Verified {self.options.domain_info} ballot {ballot} decision agreement: "
-            f"roll_hash={agreed['roll_hash']} data_hash={agreed['data_hash']}"
-        )
-
-    def verify_bonds(self):
-        missing_owned = []
-        for node in self.nodes:
-            if not self.owned_bonds(node):
-                missing_owned.append(node.tank)
-        if missing_owned:
-            raise AssertionError(f"nodes missing owned Char bonds: {missing_owned}")
-
-        seen = self.nodes[0].getallcharbonds()
-        if len(seen) < len(self.nodes):
-            raise AssertionError(
-                f"expected at least {len(self.nodes)} visible bonds, saw {len(seen)}"
-            )
-        self.log.info(f"Verified {len(seen)} visible Char bond(s)")
-
-    def verify_domain_roll_agreement(self):
-        rolls = []
-        for node in self.nodes:
-            info = node.getdomaininfo(self.options.domain_preimage)
-            rolls.append(
-                {
-                    "tank": node.tank,
-                    "next_ballot": info["next_ballot"],
-                    "next_leader_bond": info["next_leader_bond"],
-                    "is_next_leader_mine": info["is_next_leader_mine"],
-                }
-            )
-
-        expected = (rolls[0]["next_ballot"], rolls[0]["next_leader_bond"])
-        mismatches = [
-            roll
-            for roll in rolls
-            if (roll["next_ballot"], roll["next_leader_bond"]) != expected
-        ]
-        if mismatches:
-            raise AssertionError(
-                f"Char domain roll disagreement for {self.options.domain_info}: {rolls}"
-            )
-
-        leaders = [roll["tank"] for roll in rolls if roll["is_next_leader_mine"]]
-        self.log.info(
-            f"Verified Char roll agreement for {self.options.domain_info}: "
-            f"next_ballot={expected[0]} next_leader_bond={expected[1]} "
-            f"local_leaders={leaders}"
-        )
-
-    def mine_forever(self, node, wallet):
+    def mine_forever(self):
+        wallet = self.wallets[self.mining_node.tank]
         address = wallet.getnewaddress()
         interval = self.options.mine_interval
         self.log.info(
-            f"Starting continuous mining from {node.tank}: "
+            f"Starting simple mining loop from {self.mining_node.tank}: "
             f"1 block every {interval} second(s)"
         )
-
         while True:
             try:
-                self.generatetoaddress(node, 1, address, sync_fun=self.no_op)
-                self.wait_char_indexes_caught_up(timeout=180)
-                height = node.getblockcount()
+                self.generatetoaddress(
+                    self.mining_node,
+                    1,
+                    address,
+                    sync_fun=self.no_op,
+                )
                 self.log.info(
-                    f"generated 1 block from {node.tank}. New chain height: {height}"
+                    f"generated 1 block from {self.mining_node.tank}; "
+                    f"height={self.mining_node.getblockcount()}"
                 )
             except Exception as e:
-                self.log.error(f"{node.tank} mining error: {e}")
+                self.log.warning(f"simple mining loop failed: {e}")
             sleep(interval)
 
     def run_test(self):
@@ -422,41 +327,32 @@ class CharSetup(Commander):
             raise AssertionError("No tanks found")
 
         self.wait_for_tanks_connected()
-        wallets = {node.tank: self.ensure_miner(node) for node in self.nodes}
-        funding_amount = self.options.funding_amount
-        if funding_amount is None:
-            funding_amount = self.options.stake_amount + Decimal("3")
+        self.mining_node = self.select_mining_node()
+        self.char_nodes = self.discover_char_nodes()
 
-        source_node = self.nodes[0]
-        source_wallet = wallets[source_node.tank]
-        self.ensure_source_funds(source_node, source_wallet, funding_amount)
-        self.fund_peer_wallets(source_node, source_wallet, wallets, funding_amount)
-        self.create_bonds(wallets)
-        self.activate_bonds(wallets)
-        self.verify_bonds()
+        wallet_nodes = [self.mining_node]
+        wallet_nodes.extend(
+            node
+            for node in self.char_participants()
+            if node.tank != self.mining_node.tank
+        )
+        self.wallets = {node.tank: self.ensure_miner(node) for node in wallet_nodes}
+
+        self.ensure_source_funds(self.mining_node, self.wallets[self.mining_node.tank])
+        self.fund_peer_wallets(
+            self.mining_node,
+            self.wallets[self.mining_node.tank],
+            self.wallets,
+        )
+        self.create_bonds()
+        self.activate_bonds()
+        self.wait_for_active_bonds()
         self.schedule_domain()
-        self.verify_domain_roll_agreement()
-        dummy_vote = self.submit_dummy_app_payload()
-        if dummy_vote is not None:
-            CharUtil(dummy_vote["leader"], self).attest_bonds_and_wait()
-            for node in self.nodes:
-                CharUtil(node, self).attest_bonds_and_wait(wait_for_global_indexes=False)
-            self.wait_char_indexes_caught_up(timeout=180)
-            self.wait_domain_decision_agreement(
-                dummy_vote["ballot"],
-                dummy_vote["payload_hex"],
-            )
-        self.verify_domain_roll_agreement()
-
-        for node in self.nodes:
-            info = node.getdomaininfo(self.options.domain_preimage)
-            self.log.info(
-                f"{node.tank} domain next_ballot={info['next_ballot']} "
-                f"is_next_leader_mine={info['is_next_leader_mine']}"
-            )
-
-        if self.options.continuous_mining:
-            self.mine_forever(source_node, source_wallet)
+        self.log.info(
+            "CHAR app domain scheduled after active bonds. Sidecars now own app "
+            "submission; scenario will only mine blocks."
+        )
+        self.mine_forever()
 
 
 def main():

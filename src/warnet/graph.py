@@ -41,6 +41,7 @@ CHAR_DASHBOARD_METRICS = (
     f"char_domain_next_ballot=CHAR_DOMAIN:{CHAR_DOMAIN_HEX},{CHAR_DOMAIN_INFO},next_ballot "
     f"char_domain_is_next_leader_mine=CHAR_DOMAIN:{CHAR_DOMAIN_HEX},{CHAR_DOMAIN_INFO},is_next_leader_mine "
     f"char_domain_decision_roll_info=CHAR_DOMAIN_INFO:{CHAR_DOMAIN_HEX},{CHAR_DOMAIN_INFO} "
+    f"char_domain_decision_roll_history=CHAR_DOMAIN_DECISION_HISTORY:{CHAR_DOMAIN_HEX},{CHAR_DOMAIN_INFO},20 "
     "char_active_bond_info=CHAR_BONDS_INFO:active"
 )
 
@@ -122,7 +123,15 @@ def custom_graph(
         + "debug=rpc\n"
     )
     if uses_char_bitcoin(tanks):
-        default_config += "charenable=1\ndebug=char\n"
+        default_config += (
+            "charenable=1\n"
+            "charbatchverifyminconnseconds=0\n"
+            "charattestintervalms=1000\n"
+            "charprocessintervalms=500\n"
+            "rpcthreads=16\n"
+            "rpcworkqueue=256\n"
+            "debug=char\n"
+        )
 
     defaults_yaml_content = {
         "chain": "regtest",
@@ -136,6 +145,14 @@ def custom_graph(
     # Configure logging
     defaults_yaml_content["collectLogs"] = logging
     defaults_yaml_content["metricsExport"] = logging
+    if uses_char_bitcoin(tanks):
+        defaults_yaml_content["charApp"] = {
+            "enabled": True,
+            "domainInfo": CHAR_DOMAIN_INFO,
+            "domainPreimage": CHAR_DOMAIN_HEX,
+            "pollIntervalSeconds": 5,
+            "decisionScanWindow": 8,
+        }
     if logging and uses_char_bitcoin(tanks):
         defaults_yaml_content["metrics"] = CHAR_DASHBOARD_METRICS
 

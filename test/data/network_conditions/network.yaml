@@ -1,0 +1,24 @@
+networkConditions:
+  enabled: true
+  seed: 1337
+  mode: random-latency
+  scope: addnode-edges
+  latency:
+    minRttMs: 20
+    maxRttMs: 600
+    jitterPct: 10
+    distribution: normal
+
+nodes:
+  - name: tank-0000
+    addnode:
+      - tank-0001
+      - tank-0002
+  - name: tank-0001
+    addnode:
+      - tank-0003
+  - name: tank-0002
+    addnode:
+      - tank-0003
+  - name: tank-0003
+    addnode: []

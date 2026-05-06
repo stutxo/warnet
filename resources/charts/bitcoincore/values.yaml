@@ -114,6 +114,31 @@ affinity: {}
 collectLogs: false
 metricsExport: false
 prometheusMetricsPort: 9332
+metricsImage:
+  repository: bitcoindevproject/bitcoin-exporter
+  tag: latest
+  pullPolicy: IfNotPresent
+
+charApp:
+  enabled: false
+  image:
+    repository: bitcoindevproject/char-app
+    tag: latest
+    pullPolicy: IfNotPresent
+  domainInfo: warnet
+  domainPreimage: edfba5f37483dac7484bed0b573e85b88051dbe445665ffd27fbcb742adbb090
+  zmqPort: 28332
+  pollIntervalSeconds: 5
+  decisionScanWindow: 8
+
+netem:
+  enabled: false
+  image:
+    repository: alpine
+    tag: "3.20"
+    pullPolicy: IfNotPresent
+  setupCommand: |
+    apk add --no-cache iproute2 iputils
 
 # These are values that are propogated to the sub-charts (i.e. lightning nodes)
 global:

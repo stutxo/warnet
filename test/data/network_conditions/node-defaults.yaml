@@ -1,0 +1,5 @@
+chain: regtest
+image:
+  repository: bitcoindevproject/bitcoin
+  tag: "27.0"
+  pullPolicy: IfNotPresent

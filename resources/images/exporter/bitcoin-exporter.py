@@ -32,6 +32,8 @@ DEFAULT_METRICS = (
 )
 
 NAN = float("nan")
+DEFAULT_DECISION_HISTORY_LIMIT = 20
+CHAR_RESOLUTION_VERBOSITY = 1
 
 
 def metric_float(value):
@@ -105,6 +107,86 @@ def bool_label(value):
     return "true" if value else "false"
 
 
+def hex_text_label(value):
+    if not value:
+        return ""
+    try:
+        return bytes.fromhex(str(value)).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def parse_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def decision_roll_labels(entry, fallback_ballot=None):
+    if not isinstance(entry, dict):
+        entry = {}
+    if not entry:
+        labels = {
+            "found": "",
+            "resolution_type": "",
+            "roll_hash": "",
+            "data_hash": "",
+            "data": "",
+            "data_text": "",
+        }
+        if fallback_ballot is not None:
+            labels["ballot"] = label_value(fallback_ballot)
+        return labels
+
+    if entry.get("resolution_type") == "impossible":
+        roll = entry.get("impossible_roll") or {}
+    else:
+        roll = entry.get("decision_roll") or {}
+    if not isinstance(roll, dict):
+        roll = {}
+
+    data = roll.get("data") if entry.get("resolution_type") != "impossible" else ""
+    labels = {
+        "found": bool_label(entry.get("found")),
+        "resolution_type": label_value(entry.get("resolution_type")),
+        "roll_hash": label_value(roll.get("roll_hash")),
+        "data_hash": label_value(roll.get("data_hash")),
+        "data": label_value(data),
+        "data_text": hex_text_label(data),
+    }
+
+    if fallback_ballot is not None:
+        labels["ballot"] = label_value(
+            entry.get("ballot_number", fallback_ballot)
+        )
+
+    return labels
+
+
+def latest_decision_roll_labels(rpc, domain, latest_ballot):
+    latest_ballot = parse_int(latest_ballot)
+    if latest_ballot is None:
+        return decision_roll_labels({})
+
+    try:
+        resolutions = rpc.getreferendumresolution(
+            domain,
+            latest_ballot,
+            latest_ballot,
+            CHAR_RESOLUTION_VERBOSITY,
+        )
+    except Exception:
+        return decision_roll_labels({})
+
+    if isinstance(resolutions, dict):
+        resolutions = resolutions.get("resolutions", [])
+    if not isinstance(resolutions, list) or not resolutions:
+        return decision_roll_labels({})
+
+    return decision_roll_labels(resolutions[0])
+
+
 def make_char_domain_function(rpc, domain, domain_info, key, *, fingerprint=False):
     def char_domain_metric():
         if not domain_is_scheduled(rpc, domain_info):
@@ -130,7 +212,17 @@ class CharDomainInfoCollector:
             if not domain_is_scheduled(self.rpc, self.domain_info):
                 return
 
-            info = self.rpc.getdomaininfo(self.domain)
+            try:
+                info = self.rpc.getdomaininfo(self.domain)
+            except Exception:
+                info = {}
+
+            latest_decided_ballot = info.get("latest_decided_ballot")
+            latest_decision = latest_decision_roll_labels(
+                self.rpc,
+                self.domain,
+                latest_decided_ballot,
+            )
             metric = GaugeMetricFamily(
                 self.label,
                 f"CHAR_DOMAIN_INFO:{self.domain},{self.domain_info}",
@@ -139,10 +231,15 @@ class CharDomainInfoCollector:
                     "domain_info",
                     "next_ballot",
                     "next_leader_bond",
+                    "is_next_leader_mine",
                     "latest_decided_ballot",
                     "latest_decision_roll_hash",
                     "latest_decision_data_hash",
+                    "latest_decision_data",
+                    "latest_decision_data_text",
                     "latest_decision_zeitgeist",
+                    "latest_decision_found",
+                    "latest_decision_resolution_type",
                 ],
             )
             metric.add_metric(
@@ -151,13 +248,120 @@ class CharDomainInfoCollector:
                     self.domain_info,
                     label_value(info.get("next_ballot")),
                     label_value(info.get("next_leader_bond")),
-                    label_value(info.get("latest_decided_ballot")),
-                    label_value(info.get("latest_decision_roll_hash")),
-                    label_value(info.get("latest_decision_data_hash")),
+                    bool_label(info.get("is_next_leader_mine")),
+                    label_value(latest_decided_ballot),
+                    label_value(
+                        info.get("latest_decision_roll_hash")
+                        or latest_decision["roll_hash"]
+                    ),
+                    label_value(
+                        info.get("latest_decision_data_hash")
+                        or latest_decision["data_hash"]
+                    ),
+                    latest_decision["data"],
+                    latest_decision["data_text"],
                     label_value(info.get("latest_decision_zeitgeist")),
+                    latest_decision["found"],
+                    latest_decision["resolution_type"],
                 ],
                 1.0,
             )
+            yield metric
+        except Exception as e:
+            print(f"Metric {self.label} failed: {e}", flush=True)
+
+
+def decision_roll_history(rpc, domain, latest_ballot, limit):
+    latest_ballot = parse_int(latest_ballot)
+    if latest_ballot is None or limit <= 0:
+        return []
+
+    first_ballot = max(0, latest_ballot - limit + 1)
+    resolutions = rpc.getreferendumresolution(
+        domain,
+        first_ballot,
+        latest_ballot,
+        CHAR_RESOLUTION_VERBOSITY,
+    )
+    if isinstance(resolutions, dict):
+        resolutions = resolutions.get("resolutions", [])
+    if not isinstance(resolutions, list):
+        return []
+
+    history = []
+    for offset, entry in enumerate(resolutions):
+        if not isinstance(entry, dict):
+            continue
+
+        history.append(decision_roll_labels(entry, first_ballot + offset))
+
+    return sorted(
+        history,
+        key=lambda row: parse_int(row["ballot"]) or -1,
+        reverse=True,
+    )[:limit]
+
+
+class CharDomainDecisionHistoryCollector:
+    def __init__(self, rpc, label, domain, domain_info, limit):
+        self.rpc = rpc
+        self.label = label
+        self.domain = domain
+        self.domain_info = domain_info
+        self.limit = parse_int(limit)
+        if self.limit is None:
+            self.limit = DEFAULT_DECISION_HISTORY_LIMIT
+
+    def collect(self):
+        try:
+            if not domain_is_scheduled(self.rpc, self.domain_info):
+                return
+
+            try:
+                info = self.rpc.getdomaininfo(self.domain)
+                latest_decided_ballot = info.get("latest_decided_ballot")
+            except Exception:
+                latest_decided_ballot = None
+
+            metric = GaugeMetricFamily(
+                self.label,
+                f"CHAR_DOMAIN_DECISION_HISTORY:{self.domain},{self.domain_info},{self.limit}",
+                labels=[
+                    "domain",
+                    "domain_info",
+                    "history_index",
+                    "ballot",
+                    "found",
+                    "resolution_type",
+                    "roll_hash",
+                    "data_hash",
+                    "data",
+                    "data_text",
+                ],
+            )
+            for index, entry in enumerate(
+                decision_roll_history(
+                    self.rpc,
+                    self.domain,
+                    latest_decided_ballot,
+                    self.limit,
+                )
+            ):
+                metric.add_metric(
+                    [
+                        self.domain,
+                        self.domain_info,
+                        label_value(index),
+                        entry["ballot"],
+                        entry["found"],
+                        entry["resolution_type"],
+                        entry["roll_hash"],
+                        entry["data_hash"],
+                        entry["data"],
+                        entry["data_text"],
+                    ],
+                    1.0,
+                )
             yield metric
         except Exception as e:
             print(f"Metric {self.label} failed: {e}", flush=True)
@@ -238,6 +442,20 @@ def register_metric(rpc, labeled_cmd):
         args = cmd.removeprefix("CHAR_DOMAIN_INFO:")
         domain, domain_info = args.split(",", 1)
         REGISTRY.register(CharDomainInfoCollector(rpc, label, domain, domain_info))
+        print(f"Metric created: {labeled_cmd}")
+        return
+
+    if cmd.startswith("CHAR_DOMAIN_DECISION_HISTORY:"):
+        args = cmd.removeprefix("CHAR_DOMAIN_DECISION_HISTORY:")
+        parts = args.split(",", 2)
+        if len(parts) == 2:
+            domain, domain_info = parts
+            limit = DEFAULT_DECISION_HISTORY_LIMIT
+        else:
+            domain, domain_info, limit = parts
+        REGISTRY.register(
+            CharDomainDecisionHistoryCollector(rpc, label, domain, domain_info, limit)
+        )
         print(f"Metric created: {labeled_cmd}")
         return
 
