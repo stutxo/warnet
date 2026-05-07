@@ -41,7 +41,7 @@ CHAR_DASHBOARD_METRICS = (
     f"char_domain_next_ballot=CHAR_DOMAIN:{CHAR_DOMAIN_HEX},{CHAR_DOMAIN_INFO},next_ballot "
     f"char_domain_is_next_leader_mine=CHAR_DOMAIN:{CHAR_DOMAIN_HEX},{CHAR_DOMAIN_INFO},is_next_leader_mine "
     f"char_domain_decision_roll_info=CHAR_DOMAIN_INFO:{CHAR_DOMAIN_HEX},{CHAR_DOMAIN_INFO} "
-    f"char_domain_decision_roll_history=CHAR_DOMAIN_DECISION_HISTORY:{CHAR_DOMAIN_HEX},{CHAR_DOMAIN_INFO},20 "
+    f"char_domain_decision_roll_history=CHAR_DOMAIN_DECISION_HISTORY:{CHAR_DOMAIN_HEX},{CHAR_DOMAIN_INFO},100 "
     "char_active_bond_info=CHAR_BONDS_INFO:active"
 )
 

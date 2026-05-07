@@ -160,7 +160,7 @@ nodes:
       char_domain_next_ballot=CHAR_DOMAIN:edfba5f37483dac7484bed0b573e85b88051dbe445665ffd27fbcb742adbb090,warnet,next_ballot
       char_domain_is_next_leader_mine=CHAR_DOMAIN:edfba5f37483dac7484bed0b573e85b88051dbe445665ffd27fbcb742adbb090,warnet,is_next_leader_mine
       char_domain_decision_roll_info=CHAR_DOMAIN_INFO:edfba5f37483dac7484bed0b573e85b88051dbe445665ffd27fbcb742adbb090,warnet
-      char_domain_decision_roll_history=CHAR_DOMAIN_DECISION_HISTORY:edfba5f37483dac7484bed0b573e85b88051dbe445665ffd27fbcb742adbb090,warnet,20
+      char_domain_decision_roll_history=CHAR_DOMAIN_DECISION_HISTORY:edfba5f37483dac7484bed0b573e85b88051dbe445665ffd27fbcb742adbb090,warnet,100
       char_active_bond_info=CHAR_BONDS_INFO:active
 ```
 
@@ -176,9 +176,11 @@ data labels. The exporter does not synthesize decided ballots from bond
 attestation height; when `latest_decided_ballot` is not available, the
 latest-roll labels stay blank and the history table has no rows for that node.
 Different rows mean nodes are currently reporting different decision rolls, not
-that Warnet has failed the scenario. A separate history table shows the last
-twenty decided rolls each node reports, including raw `data`, decoded
-`data_text`, and `data_hash`.
+that Warnet has failed the scenario. A separate history table shows the last 100
+decided rolls each node reports, including raw `data`, decoded `data_text`, and
+`data_hash`. The dashboard also includes impossible-roll summary panels that show
+the recent impossible count by node and the ballot numbers where impossible
+rolls occurred.
 
 The bundled `resources/scenarios/char_setup.py` scenario intentionally does not
 observe or submit app data. It bootstraps funds, waits for active bonds,

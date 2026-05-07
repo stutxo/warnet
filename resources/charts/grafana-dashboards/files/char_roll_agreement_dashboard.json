@@ -617,6 +617,127 @@
         "overrides": []
       },
       "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 0,
+        "y": 36
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2094"
+          },
+          "expr": "sum by (pod) (char_domain_decision_roll_history{resolution_type=\"impossible\"})",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "title": "Recent Impossible Roll Count By Node",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true
+            },
+            "indexByName": {
+              "pod": 0,
+              "Value": 1
+            },
+            "renameByName": {
+              "pod": "node",
+              "Value": "impossible_rolls"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2094"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 16,
+        "x": 8,
+        "y": 36
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2094"
+          },
+          "expr": "char_domain_decision_roll_history{resolution_type=\"impossible\"}",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "title": "Recent Impossible Roll Ballots By Node",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "container": true,
+              "data": true,
+              "data_text": true,
+              "domain": true,
+              "domain_info": true,
+              "endpoint": true,
+              "found": true,
+              "history_index": true,
+              "instance": true,
+              "job": true,
+              "namespace": true,
+              "resolution_type": true,
+              "service": true
+            },
+            "indexByName": {
+              "pod": 0,
+              "ballot": 1,
+              "roll_hash": 2,
+              "data_hash": 3
+            },
+            "renameByName": {
+              "pod": "node"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2094"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
         "h": 8,
         "w": 24,
         "x": 0,
@@ -755,7 +876,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 36
+        "y": 46
       },
       "options": {
         "cellHeight": "sm",
