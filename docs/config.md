@@ -59,3 +59,51 @@ graph TD
 ```
 
 Users should only concern themselves therefore with setting configuration in the `<network_name>/[network|node-defaults].yaml` files.
+
+## Per-node network latency
+
+The Bitcoin Core chart supports `extraContainers`, so a network can add a
+`NET_ADMIN` sidecar that configures Linux `tc netem` in the pod network
+namespace. Put the sidecar in `node-defaults.yaml` to apply the same delay to
+every tank, or put it on individual nodes in `network.yaml` when each tank needs
+a different delay:
+
+```yaml
+nodes:
+  - name: tank-0000
+    addnode:
+      - tank-0001
+    extraContainers:
+      - name: netem
+        image: alpine:3.20
+        securityContext:
+          capabilities:
+            add: [NET_ADMIN, NET_RAW]
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            apk add --no-cache iproute2 iputils
+            tc qdisc replace dev eth0 root netem delay 25ms
+            while true; do sleep 3600; done
+
+  - name: tank-0001
+    addnode:
+      - tank-0000
+    extraContainers:
+      - name: netem
+        image: alpine:3.20
+        securityContext:
+          capabilities:
+            add: [NET_ADMIN, NET_RAW]
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            apk add --no-cache iproute2 iputils
+            tc qdisc replace dev eth0 root netem delay 150ms
+            while true; do sleep 3600; done
+```
+
+This shapes traffic leaving each tank pod. A ping between two tanks is delayed
+in both directions, so the observed round-trip time is approximately the sum of
+the two configured delays. In the example above, pings between `tank-0000` and
+`tank-0001` should be roughly `175ms` before normal cluster overhead.
